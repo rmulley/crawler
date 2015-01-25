@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"time"
 ) //import
 
 func main() {
@@ -18,9 +19,13 @@ func main() {
 		urlToGet *url.URL
 	) //var
 
+	r := mux.NewRouter()
+
+	r.HandleFunc("/status/{id}", StatusHandler)
+
 	server := &http.Server{
 		Addr:           ":8080",
-		Handler:        myHandler,
+		Handler:        r,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
@@ -50,6 +55,10 @@ func main() {
 		log.Println(img)
 	} //for
 } //main
+
+func StatusHandler(http.ResponseWriter, *http.Request) {
+	log.Println("STATUS!")
+}
 
 func getUrlContent(urlToGet string) (string, error) {
 	var (
