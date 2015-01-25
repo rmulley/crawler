@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"github.com/gorilla/mux"
 	"html"
 	"io/ioutil"
@@ -11,18 +12,20 @@ import (
 	"time"
 ) //import
 
+type PostData_t struct {
+	Urls []string `json:"urls"`
+} //PostData_t
+
 func main() {
 	var (
-		err      error
-		content  string
-		imgs     []string
-		urlToGet *url.URL
+		r = mux.NewRouter()
 	) //var
 
-	r := mux.NewRouter()
-
+	// Routes for HTTP requests
 	r.HandleFunc("/status/{id}", StatusHandler)
+	r.HandleFunc("/", CrawlHandler)
 
+	// Build server
 	server := &http.Server{
 		Addr:           ":8080",
 		Handler:        r,
@@ -31,34 +34,57 @@ func main() {
 		MaxHeaderBytes: 1 << 20,
 	} //http.Server
 
+	// Start server and listen for HTTP requests
 	log.Fatalln(server.ListenAndServe())
-
-	// Parse URL
-	if urlToGet, err = url.Parse("https://www.yahoo.com"); err != nil {
-		log.Fatalln(err)
-	} //if
-
-	// Retrieve content of URL
-	if content, err = getUrlContent(urlToGet.String()); err != nil {
-		log.Fatalln(err)
-	} //if
-
-	// Clean up HTML entities
-	content = html.UnescapeString(content)
-
-	// Retrieve image URLs
-	if imgs, err = parseImages(urlToGet, content); err != nil {
-		log.Fatalln(err)
-	} //if
-
-	for _, img := range imgs {
-		log.Println(img)
-	} //for
 } //main
 
-func StatusHandler(http.ResponseWriter, *http.Request) {
+func CrawlHandler(resp http.ResponseWriter, req *http.Request) {
+	var (
+		err  error
+		data PostData_t
+	) //var
+
+	if err = json.NewDecoder(req.Body).Decode(&data); err != nil {
+		log.Println(err)
+	} //if
+
+	for _, urlSupplied := range data.Urls {
+		go func(urlFromPost string) {
+			var (
+				err      error
+				content  string
+				imgs     []string
+				urlToGet *url.URL
+			) //var
+
+			// Parse URL
+			if urlToGet, err = url.Parse(urlFromPost); err != nil {
+				log.Fatalln(err)
+			} //if
+
+			// Retrieve content of URL
+			if content, err = getUrlContent(urlToGet.String()); err != nil {
+				log.Fatalln(err)
+			} //if
+
+			// Clean up HTML entities
+			content = html.UnescapeString(content)
+
+			// Retrieve image URLs
+			if imgs, err = parseImages(urlToGet, content); err != nil {
+				log.Fatalln(err)
+			} //if
+
+			for _, img := range imgs {
+				log.Println(img)
+			} //for
+		}(urlSupplied) //goroutine
+	} //for
+} //CrawlHandler
+
+func StatusHandler(resp http.ResponseWriter, req *http.Request) {
 	log.Println("STATUS!")
-}
+} //StatusHandler
 
 func getUrlContent(urlToGet string) (string, error) {
 	var (
