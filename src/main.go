@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/gorilla/mux"
 	"html"
 	"io/ioutil"
 	"log"
@@ -16,6 +17,16 @@ func main() {
 		imgs     []string
 		urlToGet *url.URL
 	) //var
+
+	server := &http.Server{
+		Addr:           ":8080",
+		Handler:        myHandler,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20,
+	} //http.Server
+
+	log.Fatalln(server.ListenAndServe())
 
 	// Parse URL
 	if urlToGet, err = url.Parse("https://www.yahoo.com"); err != nil {
