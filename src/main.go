@@ -16,14 +16,19 @@ type PostData_t struct {
 	Urls []string `json:"urls"`
 } //PostData_t
 
+type Status_t struct {
+	Completed  uint `json:"completed"`
+	InProgress uint `json:"inProgress"`
+} //Status_t
+
 func main() {
 	var (
 		r = mux.NewRouter()
 	) //var
 
 	// Routes for HTTP requests
-	r.HandleFunc("/status/{id}", StatusHandler)
-	r.HandleFunc("/", CrawlHandler)
+	r.HandleFunc("/status/{id}", statusHandler)
+	r.HandleFunc("/", crawlHandler)
 
 	// Build server
 	server := &http.Server{
@@ -38,7 +43,7 @@ func main() {
 	log.Fatalln(server.ListenAndServe())
 } //main
 
-func CrawlHandler(resp http.ResponseWriter, req *http.Request) {
+func crawlHandler(resp http.ResponseWriter, req *http.Request) {
 	var (
 		err  error
 		data PostData_t
@@ -59,12 +64,14 @@ func CrawlHandler(resp http.ResponseWriter, req *http.Request) {
 
 			// Parse URL
 			if urlToGet, err = url.Parse(urlFromPost); err != nil {
-				log.Fatalln(err)
+				log.Println(err)
+				return
 			} //if
 
 			// Retrieve content of URL
 			if content, err = getUrlContent(urlToGet.String()); err != nil {
-				log.Fatalln(err)
+				log.Println(err)
+				return
 			} //if
 
 			// Clean up HTML entities
@@ -72,7 +79,8 @@ func CrawlHandler(resp http.ResponseWriter, req *http.Request) {
 
 			// Retrieve image URLs
 			if imgs, err = parseImages(urlToGet, content); err != nil {
-				log.Fatalln(err)
+				log.Println(err)
+				return
 			} //if
 
 			for _, img := range imgs {
@@ -80,11 +88,27 @@ func CrawlHandler(resp http.ResponseWriter, req *http.Request) {
 			} //for
 		}(urlSupplied) //goroutine
 	} //for
-} //CrawlHandler
+} //crawlHandler
 
-func StatusHandler(resp http.ResponseWriter, req *http.Request) {
-	log.Println("STATUS!")
-} //StatusHandler
+func statusHandler(resp http.ResponseWriter, req *http.Request) {
+	var (
+		err    error
+		status Status_t
+	) //var
+
+	status.Completed = 1
+	status.InProgress = 2
+
+	// Set response headers
+	resp.Header().Set("Accept", "application/json")
+	resp.Header().Set("Content-Type", "application/json")
+
+	if err = json.NewEncoder(resp).Encode(&status); err != nil {
+		log.Println(err)
+	} //if
+
+	return
+} //statusHandler
 
 func getUrlContent(urlToGet string) (string, error) {
 	var (
