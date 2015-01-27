@@ -1,3 +1,8 @@
+###To run the server
+The following command will pull down the latest Docker image from https://registry.hub.docker.com/u/rmulley/crawler/, build it into a container, and run it over port 8080.
+
+```docker run --publish=8080:8080 rmulley/crawler```
+
 ###How to crawl URLs
 To submit URLs to crawl, you'll need to POST a valid JSON to the server like below.
 
