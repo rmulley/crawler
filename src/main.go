@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"runtime"
+	"strconv"
 	"time"
 ) //import
 
@@ -76,6 +77,10 @@ func crawlHandler(resp http.ResponseWriter, req *http.Request) {
 	} //if
 
 	for _, urlToCrawl := range data.Urls {
+		var (
+			ndx uint = 0
+		) //var
+
 		// Create new status entry for Job
 		statuses[jobCtr] = &Status_t{
 			ID: jobCtr,
@@ -89,20 +94,30 @@ func crawlHandler(resp http.ResponseWriter, req *http.Request) {
 
 		//parseLinks(urlToGet, content)
 
-		//statuses[jobCtr].InProgress++
+		results[jobCtr].Results = append(results[jobCtr].Results, UrlResult_t{
+			Url: urlToCrawl,
+		}) //append
 
-		go crawlUrl(urlToCrawl, statuses[jobCtr], results[jobCtr])
+		//ndx++
+
+		go crawlUrl(ndx, urlToCrawl, statuses[jobCtr], results[jobCtr])
 		jobCtr++
+
+		// REMOVE THIS NOW
+		ndx++
 	} //for
 } //crawlHandler
 
-func crawlUrl(urlToCrawl string, status *Status_t, result *JobResult_t) {
+func crawlUrl(ndx uint, urlToCrawl string, status *Status_t, result *JobResult_t) {
 	var (
 		err      error
 		content  string
 		imgs     []string
 		urlToGet *url.URL
 	) //var
+
+	// Update status and result of current job
+	status.InProgress++
 
 	// Parse URL
 	if urlToGet, err = url.Parse(urlToCrawl); err != nil {
@@ -126,25 +141,32 @@ func crawlUrl(urlToCrawl string, status *Status_t, result *JobResult_t) {
 	} //if
 
 	for _, img := range imgs {
-		log.Println(img)
+		result.Results[ndx].Images = append(result.Results[ndx].Images, img)
 	} //for
+
+	status.InProgress--
+	status.Completed++
 } //crawlUrl
 
 func resultHandler(resp http.ResponseWriter, req *http.Request) {
 	var (
-		err    error
-		result JobResult_t
+		err error
+		id  int
 	) //var
 
-	// Allocate memory for slice so JSON returns empty slice instead of null
-	result.Results = make([]UrlResult_t, 0)
+	vars := mux.Vars(req)
+
+	if id, err = strconv.Atoi(vars["id"]); err != nil {
+		log.Println(err)
+		return
+	} //if
 
 	// Set response headers
 	resp.Header().Set("Accept", "application/json")
 	resp.Header().Set("Content-Type", "application/json")
 
 	// Encode and write the result
-	if err = json.NewEncoder(resp).Encode(&result); err != nil {
+	if err = json.NewEncoder(resp).Encode(results[uint(id)]); err != nil {
 		log.Println(err)
 	} //if
 
