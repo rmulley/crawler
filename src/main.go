@@ -21,6 +21,7 @@ type PostData_t struct {
 type JobResult_t struct {
 	ID      uint          `json:"id"`
 	Results []UrlResult_t `json:"results"`
+	Urls    map[string]bool
 } //JobResult_t
 
 type UrlResult_t struct {
@@ -78,7 +79,10 @@ func crawlHandler(resp http.ResponseWriter, req *http.Request) {
 
 	for _, urlToCrawl := range data.Urls {
 		var (
-			ndx uint = 0
+			urlResultCtr       uint = 0
+			content            string
+			urlToGet           *url.URL
+			links, linksOnPage []string = make([]string, 0), make([]string, 0)
 		) //var
 
 		// Create new status entry for Job
@@ -90,31 +94,65 @@ func crawlHandler(resp http.ResponseWriter, req *http.Request) {
 		results[jobCtr] = &JobResult_t{
 			ID:      jobCtr,
 			Results: make([]UrlResult_t, 0),
+			Urls:    make(map[string]bool),
 		} //Result_t
 
-		//parseLinks(urlToGet, content)
+		// Parse URL
+		if urlToGet, err = url.Parse(urlToCrawl); err != nil {
+			log.Println(err)
+			return
+		} //if
 
-		results[jobCtr].Results = append(results[jobCtr].Results, UrlResult_t{
-			Url: urlToCrawl,
-		}) //append
+		// Retrieve content of URL
+		if content, err = getUrlContent(urlToCrawl); err != nil {
+			log.Println(err)
+			return
+		} //if
 
-		//ndx++
+		// Retrieve links from the URL content
+		if linksOnPage, err = parseLinks(urlToGet, content); err != nil {
+			log.Println(err)
+		} //if
 
-		go crawlUrl(ndx, urlToCrawl, statuses[jobCtr], results[jobCtr])
+		// Add first-level URLs to slice of links to crawl for images
+		links = append(links, urlToCrawl)
+		links = append(links, linksOnPage...)
+
+		for _, link := range links {
+			// Remove slash to normalize URLs
+			if link[len(link)-1:len(link)] == "/" {
+				link = link[0 : len(link)-1]
+			} //if
+
+			// Only run a URL once
+			if _, ok := results[jobCtr].Urls[link]; !ok {
+				results[jobCtr].Urls[link] = true
+
+				results[jobCtr].Results = append(results[jobCtr].Results, UrlResult_t{
+					Url: link,
+				}) //append
+
+				go crawlUrl(urlResultCtr, link, statuses[jobCtr], results[jobCtr])
+				urlResultCtr++
+			} //if
+		} //for
+
 		jobCtr++
-
-		// REMOVE THIS NOW
-		ndx++
 	} //for
 } //crawlHandler
 
-func crawlUrl(ndx uint, urlToCrawl string, status *Status_t, result *JobResult_t) {
+func crawlUrl(urlResultCtr uint, urlToCrawl string, status *Status_t, result *JobResult_t) {
 	var (
 		err      error
 		content  string
 		imgs     []string
 		urlToGet *url.URL
 	) //var
+
+	defer func() {
+		status.InProgress--
+		status.Completed++
+	}() //defer func()
 
 	// Update status and result of current job
 	status.InProgress++
@@ -141,11 +179,8 @@ func crawlUrl(ndx uint, urlToCrawl string, status *Status_t, result *JobResult_t
 	} //if
 
 	for _, img := range imgs {
-		result.Results[ndx].Images = append(result.Results[ndx].Images, img)
+		result.Results[urlResultCtr].Images = append(result.Results[urlResultCtr].Images, img)
 	} //for
-
-	status.InProgress--
-	status.Completed++
 } //crawlUrl
 
 func resultHandler(resp http.ResponseWriter, req *http.Request) {
@@ -154,8 +189,10 @@ func resultHandler(resp http.ResponseWriter, req *http.Request) {
 		id  int
 	) //var
 
+	// Get URL path params
 	vars := mux.Vars(req)
 
+	// Convert path param to int
 	if id, err = strconv.Atoi(vars["id"]); err != nil {
 		log.Println(err)
 		return
@@ -175,19 +212,25 @@ func resultHandler(resp http.ResponseWriter, req *http.Request) {
 
 func statusHandler(resp http.ResponseWriter, req *http.Request) {
 	var (
-		err    error
-		status Status_t
+		err error
+		id  int
 	) //var
 
-	status.Completed = 1
-	status.InProgress = 2
+	// Get URL path params
+	vars := mux.Vars(req)
+
+	// Convert path param to int
+	if id, err = strconv.Atoi(vars["id"]); err != nil {
+		log.Println(err)
+		return
+	} //if
 
 	// Set response headers
 	resp.Header().Set("Accept", "application/json")
 	resp.Header().Set("Content-Type", "application/json")
 
 	// Encode and write the result
-	if err = json.NewEncoder(resp).Encode(&status); err != nil {
+	if err = json.NewEncoder(resp).Encode(statuses[uint(id)]); err != nil {
 		log.Println(err)
 	} //if
 
@@ -254,7 +297,7 @@ func parseImages(urlToGet *url.URL, content string) ([]string, error) {
 func parseLinks(urlToGet *url.URL, content string) ([]string, error) {
 	var (
 		err       error
-		links     []string
+		links     []string = make([]string, 0)
 		matches   [][]string
 		findLinks = regexp.MustCompile("<a.*?href=\"(.*?)\"")
 	) //var
