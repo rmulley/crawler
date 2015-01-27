@@ -18,8 +18,17 @@ type PostData_t struct {
 	Urls []string `json:"urls"`
 } //PostData_t
 
+type Crawl_t struct {
+	Jobs []Job_t `json:"jobs"`
+} //Crawl_t
+
+type Job_t struct {
+	JobID uint   `json:"job_id"`
+	Url   string `json:"url"`
+} //Job_t
+
 type JobResult_t struct {
-	ID      uint          `json:"id"`
+	JobID   uint          `json:"job_id"`
 	Results []UrlResult_t `json:"results"`
 	Urls    map[string]bool
 } //JobResult_t
@@ -30,9 +39,9 @@ type UrlResult_t struct {
 } //UrlResult_t
 
 type Status_t struct {
-	ID         uint `json:"id"`
+	JobID      uint `json:"job_id"`
 	Completed  uint `json:"completed"`
-	InProgress uint `json:"inProgress"`
+	InProgress uint `json:"in_progress"`
 } //Status_t
 
 var (
@@ -69,8 +78,9 @@ func main() {
 
 func crawlHandler(resp http.ResponseWriter, req *http.Request) {
 	var (
-		err  error
-		data PostData_t
+		err       error
+		data      PostData_t
+		crawlResp Crawl_t
 	) //var
 
 	if err = json.NewDecoder(req.Body).Decode(&data); err != nil {
@@ -87,12 +97,12 @@ func crawlHandler(resp http.ResponseWriter, req *http.Request) {
 
 		// Create new status entry for Job
 		statuses[jobCtr] = &Status_t{
-			ID: jobCtr,
+			JobID: jobCtr,
 		} //Status_t
 
 		// Create new result entry for Job
 		results[jobCtr] = &JobResult_t{
-			ID:      jobCtr,
+			JobID:   jobCtr,
 			Results: make([]UrlResult_t, 0),
 			Urls:    make(map[string]bool),
 		} //Result_t
@@ -137,8 +147,22 @@ func crawlHandler(resp http.ResponseWriter, req *http.Request) {
 			} //if
 		} //for
 
+		crawlResp.Jobs = append(crawlResp.Jobs, Job_t{
+			JobID: jobCtr,
+			Url:   urlToCrawl,
+		}) //append
+
 		jobCtr++
 	} //for
+
+	// Set response headers
+	resp.Header().Set("Accept", "application/json")
+	resp.Header().Set("Content-Type", "application/json")
+
+	// Encode and write the result
+	if err = json.NewEncoder(resp).Encode(&crawlResp); err != nil {
+		log.Println(err)
+	} //if
 } //crawlHandler
 
 func crawlUrl(urlResultCtr uint, urlToCrawl string, status *Status_t, result *JobResult_t) {
