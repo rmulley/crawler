@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"runtime"
 	"time"
 ) //import
 
@@ -16,18 +17,39 @@ type PostData_t struct {
 	Urls []string `json:"urls"`
 } //PostData_t
 
+type JobResult_t struct {
+	ID      uint          `json:"id"`
+	Results []UrlResult_t `json:"results"`
+} //JobResult_t
+
+type UrlResult_t struct {
+	Url    string   `json:"url"`
+	Images []string `json:"images"`
+} //UrlResult_t
+
 type Status_t struct {
+	ID         uint `json:"id"`
 	Completed  uint `json:"completed"`
 	InProgress uint `json:"inProgress"`
 } //Status_t
+
+var (
+	jobCtr   uint                  = 1
+	results  map[uint]*JobResult_t = make(map[uint]*JobResult_t)
+	statuses map[uint]*Status_t    = make(map[uint]*Status_t)
+) //var
 
 func main() {
 	var (
 		r = mux.NewRouter()
 	) //var
 
+	// Use all available cores
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	// Routes for HTTP requests
 	r.HandleFunc("/status/{id}", statusHandler)
+	r.HandleFunc("/result/{id}", resultHandler)
 	r.HandleFunc("/", crawlHandler)
 
 	// Build server
@@ -53,42 +75,81 @@ func crawlHandler(resp http.ResponseWriter, req *http.Request) {
 		log.Println(err)
 	} //if
 
-	for _, urlSupplied := range data.Urls {
-		go func(urlFromPost string) {
-			var (
-				err      error
-				content  string
-				imgs     []string
-				urlToGet *url.URL
-			) //var
+	for _, urlToCrawl := range data.Urls {
+		// Create new status entry for Job
+		statuses[jobCtr] = &Status_t{
+			ID: jobCtr,
+		} //Status_t
 
-			// Parse URL
-			if urlToGet, err = url.Parse(urlFromPost); err != nil {
-				log.Println(err)
-				return
-			} //if
+		// Create new result entry for Job
+		results[jobCtr] = &JobResult_t{
+			ID:      jobCtr,
+			Results: make([]UrlResult_t, 0),
+		} //Result_t
 
-			// Retrieve content of URL
-			if content, err = getUrlContent(urlToGet.String()); err != nil {
-				log.Println(err)
-				return
-			} //if
+		//parseLinks(urlToGet, content)
 
-			// Clean up HTML entities
-			content = html.UnescapeString(content)
+		//statuses[jobCtr].InProgress++
 
-			// Retrieve image URLs
-			if imgs, err = parseImages(urlToGet, content); err != nil {
-				log.Println(err)
-				return
-			} //if
-
-			for _, img := range imgs {
-				log.Println(img)
-			} //for
-		}(urlSupplied) //goroutine
+		go crawlUrl(urlToCrawl, statuses[jobCtr], results[jobCtr])
+		jobCtr++
 	} //for
 } //crawlHandler
+
+func crawlUrl(urlToCrawl string, status *Status_t, result *JobResult_t) {
+	var (
+		err      error
+		content  string
+		imgs     []string
+		urlToGet *url.URL
+	) //var
+
+	// Parse URL
+	if urlToGet, err = url.Parse(urlToCrawl); err != nil {
+		log.Println(err)
+		return
+	} //if
+
+	// Retrieve content of URL
+	if content, err = getUrlContent(urlToGet.String()); err != nil {
+		log.Println(err)
+		return
+	} //if
+
+	// Clean up HTML entities
+	content = html.UnescapeString(content)
+
+	// Retrieve image URLs
+	if imgs, err = parseImages(urlToGet, content); err != nil {
+		log.Println(err)
+		return
+	} //if
+
+	for _, img := range imgs {
+		log.Println(img)
+	} //for
+} //crawlUrl
+
+func resultHandler(resp http.ResponseWriter, req *http.Request) {
+	var (
+		err    error
+		result JobResult_t
+	) //var
+
+	// Allocate memory for slice so JSON returns empty slice instead of null
+	result.Results = make([]UrlResult_t, 0)
+
+	// Set response headers
+	resp.Header().Set("Accept", "application/json")
+	resp.Header().Set("Content-Type", "application/json")
+
+	// Encode and write the result
+	if err = json.NewEncoder(resp).Encode(&result); err != nil {
+		log.Println(err)
+	} //if
+
+	return
+} //resultHandler
 
 func statusHandler(resp http.ResponseWriter, req *http.Request) {
 	var (
@@ -103,6 +164,7 @@ func statusHandler(resp http.ResponseWriter, req *http.Request) {
 	resp.Header().Set("Accept", "application/json")
 	resp.Header().Set("Content-Type", "application/json")
 
+	// Encode and write the result
 	if err = json.NewEncoder(resp).Encode(&status); err != nil {
 		log.Println(err)
 	} //if
@@ -165,4 +227,35 @@ func parseImages(urlToGet *url.URL, content string) ([]string, error) {
 	} //for
 
 	return imgs, err
+} //parseImages
+
+func parseLinks(urlToGet *url.URL, content string) ([]string, error) {
+	var (
+		err       error
+		links     []string
+		matches   [][]string
+		findLinks = regexp.MustCompile("<a.*?href=\"(.*?)\"")
+	) //var
+
+	// Retrieve all anchor tag URLs from string
+	matches = findLinks.FindAllStringSubmatch(content, -1)
+
+	for _, val := range matches {
+		var linkUrl *url.URL
+
+		// Parse the anchr tag URL
+		if linkUrl, err = url.Parse(val[1]); err != nil {
+			return links, err
+		} //if
+
+		// If the URL is absolute, add it to the slice
+		// If the URL is relative, build an absolute URL
+		if linkUrl.IsAbs() {
+			links = append(links, linkUrl.String())
+		} else {
+			links = append(links, urlToGet.Scheme+"://"+urlToGet.Host+linkUrl.String())
+		} //else
+	} //for
+
+	return links, err
 } //parseImages
